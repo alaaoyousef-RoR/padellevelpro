@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile in PadelLevel Pro",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "format": "email", "maxLength": 150 },
+        "padelLevel": { "type": "string" },
+        "levelNumber": { "type": "integer" },
+        "testScore": { "type": "integer" },
+        "playtomicScore": { "type": "number" },
+        "playtomicTier": { "type": "string" },
+        "testTaken": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "fullName", "email", "createdAt"]
+    },
+    "TrainingSession": {
+      "title": "TrainingSession",
+      "description": "Logged padel training session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100 },
+        "userId": { "type": "string", "maxLength": 100 },
+        "date": { "type": "string", "maxLength": 50 },
+        "focus": { "type": "string", "maxLength": 200 },
+        "durationMinutes": { "type": "integer" },
+        "rating": { "type": "integer" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "userId", "date", "focus", "durationMinutes", "rating", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles collection"
+    },
+    "training_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/TrainingSession" },
+      "description": "Training sessions logged by users"
+    }
+  }
+}

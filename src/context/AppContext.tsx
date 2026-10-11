@@ -7,6 +7,32 @@ import {
   UserProfile 
 } from '../types';
 import { PADEL_LEVELS } from '../data/assessmentData';
+import { 
+  auth, 
+  db, 
+  googleProvider, 
+  handleFirestoreError, 
+  OperationType 
+} from '../lib/firebase';
+import { 
+  signInWithPopup, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut as fbSignOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  addDoc, 
+  deleteDoc, 
+  updateDoc 
+} from 'firebase/firestore';
 
 export interface SkillItemDefinition {
   id: string;
@@ -68,6 +94,7 @@ const STORAGE_KEYS = {
 const DEFAULT_DEMO_SESSIONS: TrainingSession[] = [
   {
     id: 'sess-1',
+    userId: 'demo_user',
     date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     focus: 'تقنية وتكنيك الفولي عند الشبكة',
     durationMinutes: 75,
@@ -78,6 +105,7 @@ const DEFAULT_DEMO_SESSIONS: TrainingSession[] = [
   },
   {
     id: 'sess-2',
+    userId: 'demo_user',
     date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     focus: 'الدفاع عن الجدار الزجاجي الخلفي واللوب',
     durationMinutes: 60,
@@ -88,6 +116,7 @@ const DEFAULT_DEMO_SESSIONS: TrainingSession[] = [
   },
   {
     id: 'sess-3',
+    userId: 'demo_user',
     date: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     focus: 'مباراة تدريبية وتمركز ثنائي',
     durationMinutes: 90,
@@ -103,7 +132,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedTechniqueSlug, setSelectedTechniqueSlug] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'register'>('login');
-  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [firebaseUser, setFirebaseUser] = useState<any | null>(null);
 
   // User state
   const [user, setUser] = useState<UserProfile | null>(() => {
@@ -142,7 +172,80 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // Sync state changes with localStorage
+  // Listen to Firebase Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUser(fbUser);
+      setIsAuthLoading(true);
+      if (fbUser) {
+        try {
+          const userDocRef = doc(db, 'users', fbUser.uid);
+          const userSnap = await getDoc(userDocRef);
+          if (userSnap.exists()) {
+            const profile = userSnap.data() as UserProfile;
+            setUser(profile);
+            if (profile.testTaken && profile.pillarBreakdown) {
+              // Construct test result if available
+              setTestResult({
+                totalScore: profile.testScore || 0,
+                maxScore: 80,
+                percentage: Math.round(((profile.testScore || 0) / 80) * 100),
+                levelNumber: profile.levelNumber || 3,
+                levelTitle: profile.padelLevel || 'متوسط',
+                playtomicScore: profile.playtomicScore || 4.0,
+                playtomicTier: profile.playtomicTier || 'C+',
+                playtomicBadge: `Playtomic ${profile.playtomicScore || 4.0}`,
+                pillarBreakdown: profile.pillarBreakdown,
+                strengths: profile.strengths || [],
+                weaknesses: profile.weaknesses || [],
+                personalizedMessage: 'مرحباً بك مجدداً في ملفك الشخصي المحدث.',
+                takenAt: profile.testResultDate || new Date().toISOString(),
+                answers: {}
+              });
+            }
+          } else {
+            // Create initial profile in Firestore
+            const newProfile: UserProfile = {
+              id: fbUser.uid,
+              fullName: fbUser.displayName || fbUser.email?.split('@')[0] || 'لاعب بادل',
+              email: fbUser.email || '',
+              photoURL: fbUser.photoURL || undefined,
+              testTaken: false,
+              createdAt: new Date().toISOString()
+            };
+            try {
+              await setDoc(userDocRef, newProfile);
+            } catch (err) {
+              handleFirestoreError(err, OperationType.CREATE, `users/${fbUser.uid}`);
+            }
+            setUser(newProfile);
+          }
+
+          // Fetch training sessions from Firestore
+          try {
+            const q = query(collection(db, 'training_sessions'), where('userId', '==', fbUser.uid));
+            const querySnapshot = await getDocs(q);
+            const sessions: TrainingSession[] = [];
+            querySnapshot.forEach((d) => {
+              sessions.push(d.data() as TrainingSession);
+            });
+            if (sessions.length > 0) {
+              setTrainingSessions(sessions);
+            }
+          } catch (err) {
+            handleFirestoreError(err, OperationType.LIST, 'training_sessions');
+          }
+        } catch (error) {
+          console.error('Error loading user data from Firestore:', error);
+        }
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Sync state changes with localStorage for offline / guest use
   useEffect(() => {
     if (user) {
       localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
@@ -182,26 +285,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsAuthModalOpen(false);
   };
 
-  // Google Authentication simulation
+  // Google Authentication via Firebase
   const loginWithGoogle = async () => {
     try {
-      const mockProfile: UserProfile = {
-        id: 'google_user_' + Date.now(),
-        fullName: 'لاعب جوجل بادل',
-        email: 'player.google@padellevel.pro',
-        padelLevel: testResult ? testResult.levelTitle : undefined,
-        levelNumber: testResult ? testResult.levelNumber : undefined,
-        testScore: testResult ? testResult.totalScore : undefined,
-        playtomicScore: testResult ? testResult.playtomicScore : undefined,
-        playtomicTier: testResult ? testResult.playtomicTier : undefined,
-        pillarBreakdown: testResult ? testResult.pillarBreakdown : undefined,
-        testTaken: !!testResult,
-        testResultDate: testResult?.takenAt,
-        strengths: testResult?.strengths,
-        weaknesses: testResult?.weaknesses,
-        createdAt: new Date().toISOString()
-      };
-      setUser(mockProfile);
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
+      const userDocRef = doc(db, 'users', fbUser.uid);
+      const userSnap = await getDoc(userDocRef);
+      
+      let profile: UserProfile;
+      if (userSnap.exists()) {
+        profile = userSnap.data() as UserProfile;
+      } else {
+        profile = {
+          id: fbUser.uid,
+          fullName: fbUser.displayName || 'لاعب جوجل بادل',
+          email: fbUser.email || 'player@padellevel.pro',
+          photoURL: fbUser.photoURL || undefined,
+          testTaken: !!testResult,
+          padelLevel: testResult ? testResult.levelTitle : undefined,
+          levelNumber: testResult ? testResult.levelNumber : undefined,
+          testScore: testResult ? testResult.totalScore : undefined,
+          playtomicScore: testResult ? testResult.playtomicScore : undefined,
+          playtomicTier: testResult ? testResult.playtomicTier : undefined,
+          pillarBreakdown: testResult ? testResult.pillarBreakdown : undefined,
+          createdAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(userDocRef, profile);
+        } catch (err) {
+          handleFirestoreError(err, OperationType.CREATE, `users/${fbUser.uid}`);
+        }
+      }
+      setUser(profile);
       closeAuthModal();
       return { success: true };
     } catch (err: unknown) {
@@ -216,29 +332,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!email || !pass) {
         return { success: false, message: 'يرجى إدخال البريد الإلكتروني وكلمة المرور.' };
       }
-      const existingUser = user;
-      const profile: UserProfile = existingUser ? {
-        ...existingUser,
-        email: email.trim(),
-        fullName: existingUser.fullName || email.split('@')[0]
-      } : {
-        id: 'user_' + Date.now(),
-        fullName: email.split('@')[0],
-        email: email.trim(),
-        padelLevel: testResult ? testResult.levelTitle : undefined,
-        levelNumber: testResult ? testResult.levelNumber : undefined,
-        testScore: testResult ? testResult.totalScore : undefined,
-        playtomicScore: testResult ? testResult.playtomicScore : undefined,
-        playtomicTier: testResult ? testResult.playtomicTier : undefined,
-        pillarBreakdown: testResult ? testResult.pillarBreakdown : undefined,
-        testTaken: !!testResult,
-        testResultDate: testResult?.takenAt,
-        strengths: testResult?.strengths,
-        weaknesses: testResult?.weaknesses,
-        createdAt: new Date().toISOString()
-      };
-
-      setUser(profile);
+      // Try Firebase auth first, fallback to mock if offline or demo
+      try {
+        const result = await signInWithEmailAndPassword(auth, email, pass);
+        const fbUser = result.user;
+        const userDocRef = doc(db, 'users', fbUser.uid);
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          setUser(userSnap.data() as UserProfile);
+        }
+      } catch {
+        // Fallback local login simulation if offline
+        const profile: UserProfile = {
+          id: 'user_' + Date.now(),
+          fullName: email.split('@')[0],
+          email: email.trim(),
+          testTaken: !!testResult,
+          padelLevel: testResult ? testResult.levelTitle : undefined,
+          levelNumber: testResult ? testResult.levelNumber : undefined,
+          testScore: testResult ? testResult.totalScore : undefined,
+          playtomicScore: testResult ? testResult.playtomicScore : undefined,
+          playtomicTier: testResult ? testResult.playtomicTier : undefined,
+          pillarBreakdown: testResult ? testResult.pillarBreakdown : undefined,
+          createdAt: new Date().toISOString()
+        };
+        setUser(profile);
+      }
       closeAuthModal();
       return { success: true };
     } catch (err: unknown) {
@@ -253,24 +372,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!fullName || !email || !pass) {
         return { success: false, message: 'يرجى تعبئة كافة الحقول المطلوبة.' };
       }
-      const newProfile: UserProfile = {
-        id: 'user_' + Date.now(),
-        fullName: fullName.trim(),
-        email: email.trim(),
-        padelLevel: testResult ? testResult.levelTitle : undefined,
-        levelNumber: testResult ? testResult.levelNumber : undefined,
-        testScore: testResult ? testResult.totalScore : undefined,
-        playtomicScore: testResult ? testResult.playtomicScore : undefined,
-        playtomicTier: testResult ? testResult.playtomicTier : undefined,
-        pillarBreakdown: testResult ? testResult.pillarBreakdown : undefined,
-        testTaken: !!testResult,
-        testResultDate: testResult?.takenAt,
-        strengths: testResult?.strengths,
-        weaknesses: testResult?.weaknesses,
-        createdAt: new Date().toISOString()
-      };
-
-      setUser(newProfile);
+      try {
+        const result = await createUserWithEmailAndPassword(auth, email, pass);
+        const fbUser = result.user;
+        const newProfile: UserProfile = {
+          id: fbUser.uid,
+          fullName: fullName.trim(),
+          email: email.trim(),
+          testTaken: !!testResult,
+          padelLevel: testResult ? testResult.levelTitle : undefined,
+          levelNumber: testResult ? testResult.levelNumber : undefined,
+          testScore: testResult ? testResult.totalScore : undefined,
+          playtomicScore: testResult ? testResult.playtomicScore : undefined,
+          playtomicTier: testResult ? testResult.playtomicTier : undefined,
+          pillarBreakdown: testResult ? testResult.pillarBreakdown : undefined,
+          createdAt: new Date().toISOString()
+        };
+        await setDoc(doc(db, 'users', fbUser.uid), newProfile);
+        setUser(newProfile);
+      } catch {
+        const newProfile: UserProfile = {
+          id: 'user_' + Date.now(),
+          fullName: fullName.trim(),
+          email: email.trim(),
+          testTaken: !!testResult,
+          padelLevel: testResult ? testResult.levelTitle : undefined,
+          levelNumber: testResult ? testResult.levelNumber : undefined,
+          testScore: testResult ? testResult.totalScore : undefined,
+          playtomicScore: testResult ? testResult.playtomicScore : undefined,
+          playtomicTier: testResult ? testResult.playtomicTier : undefined,
+          pillarBreakdown: testResult ? testResult.pillarBreakdown : undefined,
+          createdAt: new Date().toISOString()
+        };
+        setUser(newProfile);
+      }
       closeAuthModal();
       return { success: true };
     } catch (err: unknown) {
@@ -380,6 +515,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = async () => {
+    try {
+      await fbSignOut(auth);
+    } catch {
+      // ignore
+    }
     setUser(null);
     localStorage.removeItem(STORAGE_KEYS.USER);
     navigateTo('home');
@@ -389,22 +529,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTestResult(result);
     localStorage.setItem(STORAGE_KEYS.TEST_RESULT, JSON.stringify(result));
 
-    const updatedUser: UserProfile = user ? {
-      ...user,
-      padelLevel: result.levelTitle,
-      levelNumber: result.levelNumber,
-      testScore: result.totalScore,
-      playtomicScore: result.playtomicScore,
-      playtomicTier: result.playtomicTier,
-      pillarBreakdown: result.pillarBreakdown,
-      testTaken: true,
-      testResultDate: result.takenAt,
-      strengths: result.strengths,
-      weaknesses: result.weaknesses
-    } : {
-      id: 'guest_' + Date.now(),
-      fullName: 'لاعب بادل',
-      email: 'guest@padellevel.pro',
+    const userId = user ? user.id : ('guest_' + Date.now());
+    const updatedUser: UserProfile = {
+      id: userId,
+      fullName: user ? user.fullName : 'لاعب بادل',
+      email: user ? user.email : 'guest@padellevel.pro',
       padelLevel: result.levelTitle,
       levelNumber: result.levelNumber,
       testScore: result.totalScore,
@@ -415,23 +544,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       testResultDate: result.takenAt,
       strengths: result.strengths,
       weaknesses: result.weaknesses,
-      createdAt: new Date().toISOString()
+      createdAt: user?.createdAt || new Date().toISOString()
     };
 
     setUser(updatedUser);
+
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'users', auth.currentUser.uid), updatedUser, { merge: true });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${auth.currentUser.uid}`);
+      }
+    }
   };
 
   const addTrainingSession = async (sessionData: Omit<TrainingSession, 'id' | 'createdAt'>) => {
+    const userId = auth.currentUser ? auth.currentUser.uid : (user ? user.id : 'demo_user');
     const newSession: TrainingSession = {
       ...sessionData,
+      userId,
       id: 'sess_' + Date.now(),
       createdAt: new Date().toISOString()
     };
     setTrainingSessions(prev => [newSession, ...prev]);
+
+    try {
+      await setDoc(doc(db, 'training_sessions', newSession.id), newSession);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `training_sessions/${newSession.id}`);
+    }
   };
 
   const deleteTrainingSession = async (id: string) => {
     setTrainingSessions(prev => prev.filter(s => s.id !== id));
+    try {
+      await deleteDoc(doc(db, 'training_sessions', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `training_sessions/${id}`);
+    }
   };
 
   const toggleSkillMastered = (skillId: string) => {
@@ -446,8 +596,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         user,
-        firebaseUser: null,
-        isAuthenticated: !!user,
+        firebaseUser,
+        isAuthenticated: !!user || !!firebaseUser,
         isAuthLoading,
         currentPage,
         selectedTechniqueSlug,

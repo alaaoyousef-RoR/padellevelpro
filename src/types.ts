@@ -140,6 +140,7 @@ export interface VideoTutorial {
 
 export interface TrainingSession {
   id: string;
+  userId?: string;
   date: string;
   focus: string;
   durationMinutes: number;

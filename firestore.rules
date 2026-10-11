@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'fullName', 'email', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'fullName', 'email', 'padelLevel', 'levelNumber', 'testScore', 'playtomicScore', 'playtomicTier', 'testTaken', 'testResultDate', 'strengths', 'weaknesses', 'createdAt', 'photoURL']) &&
+        data.id is string && data.id.size() <= 100 &&
+        data.fullName is string && data.fullName.size() <= 100 &&
+        data.email is string && data.email.size() <= 150 &&
+        data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    function isValidTrainingSession(data) {
+      return data.keys().hasAll(['id', 'userId', 'date', 'focus', 'durationMinutes', 'rating', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'date', 'focus', 'durationMinutes', 'skillsWorkedOn', 'rating', 'notes', 'createdAt']) &&
+        data.id is string && data.id.size() <= 100 &&
+        data.userId is string && data.userId.size() <= 100 &&
+        data.date is string && data.date.size() <= 50 &&
+        data.focus is string && data.focus.size() <= 200 &&
+        data.durationMinutes is number && data.durationMinutes > 0 && data.durationMinutes <= 1440 &&
+        data.rating is number && data.rating >= 1 && data.rating <= 10 &&
+        data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.id == userId;
+      allow update: if isSignedIn() && isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.id == userId && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isSignedIn() && isOwner(userId);
+    }
+
+    match /training_sessions/{sessionId} {
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidTrainingSession(request.resource.data) && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && isValidTrainingSession(request.resource.data) && request.resource.data.userId == request.auth.uid && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
