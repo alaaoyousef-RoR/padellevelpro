@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Alexandria', sans-serif;
+  --font-alexandria: 'Alexandria', sans-serif;
+  --color-neon: #d4ff00;
+  --color-neon-hover: #bfe600;
+  --color-bg-dark: #0b0c0d;
+  --color-surface-1: #111315;
+  --color-surface-2: #16191d;
+  --color-ink: #f8f9fa;
+  --color-ink-muted: rgba(248, 249, 250, 0.6);
+  --color-ink-faint: rgba(248, 249, 250, 0.1);
+  --color-padel-primary: #0F7B6C;
+  --color-padel-secondary: #1F2937;
+  --color-padel-accent: #22C55E;
+}
+
+:root {
+  --font-primary: 'Alexandria', sans-serif;
+  --bg: #0b0c0d;
+  --ink: #f8f9fa;
+  --accent: #d4ff00;
+  --ink-faint: rgba(248, 249, 250, 0.1);
+  --ink-muted: rgba(248, 249, 250, 0.6);
+}
+
+/* Universal Typography Enforcement */
+*,
+*::before,
+*::after,
+html,
+body {
+  font-family: 'Alexandria', sans-serif !important;
+}
+
+@layer base {
+  html,
+  body {
+    font-family: 'Alexandria', sans-serif !important;
+    line-height: 1.6;
+    background-color: var(--bg);
+    color: var(--ink);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* RTL / Arabic typography optimization */
+  html[dir="rtl"],
+  body[dir="rtl"],
+  [dir="rtl"],
+  [lang="ar"] {
+    font-family: 'Alexandria', sans-serif !important;
+    line-height: 1.6;
+  }
+}
+
+.font-alexandria,
+[data-font="alexandria"],
+.font-syne,
+[data-font="syne"],
+.font-mono-tag {
+  font-family: 'Alexandria', sans-serif !important;
+}
+
+.label-mono {
+  font-family: 'Alexandria', sans-serif !important;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: 8px;
+  display: block;
+}
+
+/* Custom scrollbars from Variation 2 */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0c0d;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #bfe600;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.card-dark {
+  background: rgba(248, 249, 250, 0.03);
+  border: 1px solid var(--ink-faint);
+  backdrop-filter: blur(12px);
+}
+
+.card-dark:hover {
+  border-color: rgba(212, 255, 0, 0.3);
+}
+
+.btn-neon {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 800;
+  border-radius: 4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.2s ease;
+}
+
+.btn-neon:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(212, 255, 0, 0.35);
+}
+
+.btn-outline-ink {
+  border: 1.5px solid var(--ink);
+  color: var(--ink);
+  font-weight: 700;
+  border-radius: 4px;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.btn-outline-ink:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--accent);
+  color: var(--accent);
+}

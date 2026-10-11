@@ -1,0 +1,8 @@
+{
+  "name": "PadelLevel Pro-1",
+  "description": "منصة تحديد مستوى لاعب البادل، برامج تدريبية مخصصة، مكتبة تقنيات وتكتيكات البادل وتتبع التقدم الاحترافي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
